@@ -1,0 +1,20 @@
+/* 重置浏览器默认样式，确保全屏显示 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  overflow: hidden; /* 防止出现滚动条 */
+  background-color: #000; /* 默认黑色背景 */
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+#game-container {
+  width: 100vw;
+  height: 100vh;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
