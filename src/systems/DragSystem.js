@@ -1,158 +1,115 @@
 import * as THREE from 'three';
-import { calculateServiceTime, WorkerAttributes } from '../core/GameConfig.js';
-import { gameManager } from '../core/GameManager.js';
 
 /**
- * Drag System
- * 处理从 2D UI 拖拽社工到 3D 场景的核心交互逻辑
+ * DragSystem.js
+ * 处理点击和拖拽交互。
+ * 
+ * 核心职责:
+ * 1. 射线检测 (Raycasting)。
+ * 2. 验证社工冷却 (LevelManager.getWorkerStatus)。
+ * 3. 触发服务结算 (LevelManager.incrementScore)。
  */
 export class DragSystem {
-    // ... (constructor and listeners unchanged)
-
-    // ... (getEventPos, onMouseDown, onMouseMove, onMouseUp, createGhost, removeGhost unchanged)
-
-    // We only need to update checkDrop and imports. 
-    // Since replace_file_content works on chunks, I will target the checkDrop method specifically.
-
-    constructor(scene, camera, workerContainer) {
-        this.scene = scene;
+    constructor(camera, scene, levelManager) {
         this.camera = camera;
-        this.workerContainer = workerContainer; // DOM element containing worker cards
+        this.scene = scene;
+        this.levelManager = levelManager;
 
         this.raycaster = new THREE.Raycaster();
-        this.mouse = new THREE.Vector2();
+        this.pointer = new THREE.Vector2();
+        this.isDragging = false;
+        this.draggedWorkerId = null; // 当前拖拽的是哪个社工 (MVP先固定为一个 ID 用于测试)
+        this.ghostMesh = null; // 拖拽时的幻影
 
-        this.draggedData = null; // { id, attr, color }
-        this.ghostEl = null;     // 跟随鼠标的幻影元素
+        // MVP: 暂时模拟只有一个 ID 为 'Worker-A' 的社工在被拖拽
+        // 后续 UI 对接后，这里应该是从 UI 传过来的 ID
+        this.currentSelectedWorkerId = 'Worker-A';
 
-        this.initListeners();
+        // 绑定事件
+        window.addEventListener('pointerdown', this.onPointerDown.bind(this));
+        window.addEventListener('pointermove', this.onPointerMove.bind(this));
+        window.addEventListener('pointerup', this.onPointerUp.bind(this));
     }
 
-    initListeners() {
-        // 绑定整个文档的鼠标/触摸事件，确保拖拽流畅
-        document.addEventListener('mousedown', this.onMouseDown.bind(this));
-        document.addEventListener('mousemove', this.onMouseMove.bind(this));
-        document.addEventListener('mouseup', this.onMouseUp.bind(this));
-
-        // 触摸屏支持
-        document.addEventListener('touchstart', this.onMouseDown.bind(this), { passive: false });
-        document.addEventListener('touchmove', this.onMouseMove.bind(this), { passive: false });
-        document.addEventListener('touchend', this.onMouseUp.bind(this));
+    update(dt) {
+        // DragSystem 主要是事件驱动，update 可用于平滑动画等
     }
 
-    /**
-     * 获取事件坐标（兼容鼠标和触摸）
-     */
-    getEventPos(e) {
-        if (e.touches && e.touches.length > 0) {
-            return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    onPointerDown(event) {
+        // 1. 检查冷却
+        const workerStatus = this.levelManager.getWorkerStatus(this.currentSelectedWorkerId);
+        if (workerStatus && workerStatus.cooldown > 0) {
+            console.log('Worker is in cooldown!', workerStatus.cooldown);
+            // TODO: 播放拒绝音效
+            return;
         }
-        return { x: e.clientX, y: e.clientY };
-    }
 
-    onMouseDown(e) {
-        // 1. 检查点击目标是否是 worker-card
-        const card = e.target.closest('.worker-card');
-        if (!card) return;
+        this.isDragging = true;
+        this.draggedWorkerId = this.currentSelectedWorkerId;
 
-        e.preventDefault(); // 防止默认选取文本
-
-        // 2. 提取数据
-        const workersMock = [ // 临时 Mock 数据源，后续应从 GameLevelUI 获取
-            { id: 101, attr: WorkerAttributes.STRONG, color: "#d97706" },
-            { id: 102, attr: WorkerAttributes.TALKATIVE, color: "#16a34a" },
-            { id: 103, attr: WorkerAttributes.SMART, color: "#2563eb" }
-        ];
-        const id = parseInt(card.dataset.id);
-        const data = workersMock.find(w => w.id === id);
-
-        if (data) {
-            this.draggedData = data;
-            this.createGhost(this.getEventPos(e), data.color);
+        // 创建幻影 (绿色半透明方块)
+        if (!this.ghostMesh) {
+            const geo = new THREE.BoxGeometry(1, 1, 1);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.5 });
+            this.ghostMesh = new THREE.Mesh(geo, mat);
+            this.scene.add(this.ghostMesh);
         }
+        this.ghostMesh.visible = true;
+
+        this.updateGhostPosition(event);
     }
 
-    onMouseMove(e) {
-        if (!this.draggedData || !this.ghostEl) return;
-
-        e.preventDefault();
-        const pos = this.getEventPos(e);
-
-        // 更新幻影位置
-        this.ghostEl.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
+    onPointerMove(event) {
+        if (!this.isDragging) return;
+        this.updateGhostPosition(event);
     }
 
-    onMouseUp(e) {
-        if (!this.draggedData) return;
+    onPointerUp(event) {
+        if (!this.isDragging) return;
+        this.isDragging = false;
+        this.ghostMesh.visible = false;
 
-        const pos = e.changedTouches ?
-            { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY } :
-            { x: e.clientX, y: e.clientY };
+        // 2. 检测是否投放到老人身上
+        this.updatePointer(event);
+        this.raycaster.setFromCamera(this.pointer, this.camera);
 
-        // 1. 执行射线检测
-        this.checkDrop(pos);
+        // 获取所有老人实体 (需从 SpawnerSystem 或 Scene 获取，MVP 简单遍历 Scene children)
+        const intersects = this.raycaster.intersectObjects(this.scene.children);
 
-        // 2. 清理
-        this.removeGhost();
-        this.draggedData = null;
-    }
-
-    createGhost(pos, color) {
-        this.ghostEl = document.createElement('div');
-        this.ghostEl.style.position = 'absolute';
-        this.ghostEl.style.top = '0';
-        this.ghostEl.style.left = '0';
-        this.ghostEl.style.width = '60px';
-        this.ghostEl.style.height = '60px';
-        this.ghostEl.style.backgroundColor = color;
-        this.ghostEl.style.borderRadius = '50%';
-        this.ghostEl.style.opacity = '0.8';
-        this.ghostEl.style.pointerEvents = 'none'; // 穿透
-        this.ghostEl.style.zIndex = '9999';
-        this.ghostEl.style.transform = `translate(${pos.x}px, ${pos.y}px)`;
-        // 中心对齐
-        this.ghostEl.style.marginLeft = '-30px';
-        this.ghostEl.style.marginTop = '-30px';
-
-        document.body.appendChild(this.ghostEl);
-    }
-
-    removeGhost() {
-        if (this.ghostEl) {
-            this.ghostEl.remove();
-            this.ghostEl = null;
+        for (const hit of intersects) {
+            if (hit.object.userData && hit.object.userData.type === 'elder') {
+                console.log('Hit Elder!');
+                this.serveElder(hit.object);
+                return; // 只服务一个
+            }
         }
     }
 
-    /**
-     * 核心逻辑：检测投放结果
-     */
-    checkDrop(screenPos) {
-        // 1. 归一化设备坐标 (NDC) -1 到 +1
-        this.mouse.x = (screenPos.x / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(screenPos.y / window.innerHeight) * 2 + 1;
+    updatePointer(event) {
+        this.pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    }
 
-        // 2. 发射射线
-        this.raycaster.setFromCamera(this.mouse, this.camera);
-
-        // 3. 检测与“老人”组的碰撞
-        // 获取场景中所有名为 'OldMan' 的物体 (且必须可见)
-        const oldMen = this.scene.children.filter(obj =>
-            obj.userData &&
-            obj.userData.type === 'OldMan' &&
-            obj.visible
-        );
-        const intersects = this.raycaster.intersectObjects(oldMen);
-
-        if (intersects.length > 0) {
-            const target = intersects[0].object;
-            console.log(`[DragSystem] 🎯 Hit OldMan! (ID: ${target.id})`);
-
-            // 调用游戏管理器处理服务逻辑
-            gameManager.handleService(target, this.draggedData.attr);
-
-        } else {
-            console.log('[DragSystem] ❌ Missed.');
+    updateGhostPosition(event) {
+        // 将鼠标投射到地平面 (y=0)
+        this.updatePointer(event);
+        this.raycaster.setFromCamera(this.pointer, this.camera);
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        const target = new THREE.Vector3();
+        this.raycaster.ray.intersectPlane(plane, target);
+        if (target) {
+            this.ghostMesh.position.copy(target);
         }
+    }
+
+    serveElder(elderMesh) {
+        // 1. 视觉销毁
+        this.scene.remove(elderMesh);
+
+        // 2. 逻辑加分
+        this.levelManager.incrementScore();
+
+        // 3. 触发冷却 (Critical Logic)
+        this.levelManager.startWorkerCooldown(this.draggedWorkerId);
     }
 }

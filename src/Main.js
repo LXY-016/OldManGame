@@ -1,81 +1,123 @@
 import * as THREE from 'three';
+import GameConfig from './core/ConfigLoader.js';
+import { GameLoop } from './core/GameLoop.js';
+import { LevelManager } from './systems/LevelManager.js';
+import { SpawnerSystem } from './systems/SpawnerSystem.js';
+import { DragSystem } from './systems/DragSystem.js';
+import { StartScreen } from './ui/Start Screen.js';
+import { LevelSelect } from './ui/Level Select.js';
+import { GameLevelUI } from './ui/Game Level.js';
 
-// --- 1. 初始化场景 ---
-// 创建场景对象，容纳所有 3D 物体
-const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x333333); // 设置深灰色背景
+/**
+ * Main.js
+ * 游戏入口与组合根 (Composition Root)。
+ * 负责组装各个 System 和 UI，不包含具体逻辑。
+ */
 
-// --- 2. 初始化相机 (2.5D 等轴侧模式) ---
-// 计算屏幕宽高比
-const aspect = window.innerWidth / window.innerHeight;
-// 视锥体大小 (控制缩放等级，数值越大看到的内容越多)
-const d = 10;
-// 使用正交相机 (OrthographicCamera) 实现无透视的“伪 3D”效果
-const camera = new THREE.OrthographicCamera(
-    -d * aspect, d * aspect, // left, right
-    d, -d,                   // top, bottom
-    1, 1000                  // near, far (近裁剪面, 远裁剪面)
-);
+// Global State
+let loop, scene, camera, renderer;
+let currentUI = null;
 
-// 设置相机位置 (经典的等轴侧角度)
-// x:20, y:20, z:20 可以得到一个正 45 度的俯视角
-camera.position.set(20, 20, 20);
-// 让相机永远盯着场景中心 (0,0,0)
-camera.lookAt(scene.position);
+// Systems
+let levelManager, spawnerSystem, dragSystem, gameLevelUI;
 
-// --- 3. 初始化渲染器 ---
-const renderer = new THREE.WebGLRenderer({ antialias: true }); // 开启抗锯齿
-renderer.setSize(window.innerWidth, window.innerHeight);
-// 将渲染出的画面 (canvas) 添加到 HTML 页面中
-document.getElementById('game-container').appendChild(renderer.domElement);
+function initThree() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x333333);
 
-// --- 4. 添加基础物体 (测试用) ---
-// 创建一个立方体几何体 (Kubus)
-const geometry = new THREE.BoxGeometry(2, 2, 2);
-// 创建材质 (Material) - 绿色，受光照影响
-const material = new THREE.MeshLambertMaterial({ color: 0x00ff00 });
-// 组合几何体和材质成为网格 (Mesh)
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
-
-// --- 5. 添加光源 ---
-// 环境光 (Ambient Light): 均匀照亮所有物体，无阴影
-const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-scene.add(ambientLight);
-
-// 平行光 (Directional Light): 模拟太阳光，产生明暗关系
-const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-dirLight.position.set(10, 20, 10);
-scene.add(dirLight);
-
-// --- 6. 窗口自适应处理 ---
-window.addEventListener('resize', () => {
-    // 重新计算宽高比
     const aspect = window.innerWidth / window.innerHeight;
+    const d = 10;
+    camera = new THREE.OrthographicCamera(-d * aspect, d * aspect, d, -d, 1, 1000);
+    camera.position.set(20, 20, 20);
+    camera.lookAt(scene.position);
 
-    // 更新相机视锥体参数
-    camera.left = -d * aspect;
-    camera.right = d * aspect;
-    camera.top = d;
-    camera.bottom = -d;
-
-    // 更新相机投影矩阵
-    camera.updateProjectionMatrix();
-
-    // 更新渲染器尺寸
+    renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
-});
+    document.getElementById('game-container').appendChild(renderer.domElement);
 
-// --- 7. 动画循环 ---
-function animate() {
-    requestAnimationFrame(animate);
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 20, 10);
+    scene.add(dirLight);
 
-    // 让立方体旋转起来
-    cube.rotation.y += 0.01;
+    // Resize Handler
+    window.addEventListener('resize', () => {
+        const aspect = window.innerWidth / window.innerHeight;
+        camera.left = -d * aspect;
+        camera.right = d * aspect;
+        camera.top = d;
+        camera.bottom = -d;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
 
-    // 执行渲染
-    renderer.render(scene, camera);
+    // Render Loop (separate from Logic Loop)
+    function render() {
+        requestAnimationFrame(render);
+        renderer.render(scene, camera);
+        if (gameLevelUI) gameLevelUI.update(); // Tick UI
+    }
+    render();
 }
 
-// 启动循环
-animate();
+// 状态机: 切换界面
+function showStartScreen() {
+    if (currentUI) currentUI.unmount();
+    console.log('State: Start Screen');
+
+    const startScreen = new StartScreen(() => {
+        showLevelSelect();
+    });
+    startScreen.mount();
+    currentUI = startScreen;
+}
+
+function showLevelSelect() {
+    if (currentUI) currentUI.unmount();
+    console.log('State: Level Select');
+
+    const levelSelect = new LevelSelect((levelIndex) => {
+        showGameLevel(levelIndex);
+    });
+    levelSelect.mount();
+    currentUI = levelSelect;
+}
+
+function showGameLevel(levelIndex) {
+    if (currentUI) currentUI.unmount();
+    console.log('State: Game Level', levelIndex);
+
+    // 1. 准备配置 (MVP: Config from Markdown)
+    const levelConfig = GameConfig.levels[levelIndex - 1] || GameConfig.levels[0];
+    const workerConfig = GameConfig.workers;
+
+    // 2. 初始化核心系统
+    if (loop) loop.stop();
+    loop = new GameLoop();
+
+    levelManager = new LevelManager();
+    levelManager.init(levelConfig, workerConfig);
+
+    spawnerSystem = new SpawnerSystem(scene, levelConfig);
+    dragSystem = new DragSystem(camera, scene, levelManager);
+
+    // 3. 注册到循环
+    loop.addSystem(levelManager); // 状态更新
+    loop.addSystem(spawnerSystem); // 生成更新
+    loop.addSystem(dragSystem); // 交互更新
+
+    // 4. 初始化 UI
+    gameLevelUI = new GameLevelUI(levelManager);
+    gameLevelUI.mount();
+    currentUI = gameLevelUI; // 虽然 UI 自己管理生命周期，但也记录一下
+
+    // 5. 启动游戏逻辑
+    loop.start();
+}
+
+// Boot
+console.log('Game Booting...', GameConfig);
+initThree();
+showStartScreen();

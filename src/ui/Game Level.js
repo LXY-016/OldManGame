@@ -1,78 +1,142 @@
-import { uiManager } from './UI Manager.js';
-
 /**
- * Game Level UI (Layer 1)
- * 游戏主界面逻辑：管理 HUD、社工栏、暂停等
+ * Game Level.js
+ * 负责渲染每一个关卡的 HUD 和 UI。
+ * 
+ * 核心功能:
+ * 1. HUD: 显示分数和倒计时。
+ * 2. 社工栏: 渲染社工头像和 **冷却遮罩**。
+ * 3. 结算弹窗: 胜利/失败。
  */
 export class GameLevelUI {
-    constructor() {
-        this.container = document.getElementById('layer-1');
-        this.scoreEl = document.getElementById('hud-score');
-        this.timerEl = document.getElementById('hud-timer');
-        this.workerContainer = document.querySelector('.worker-bar');
-        this.exitBtn = document.getElementById('btn-level-exit');
-
-        // 模拟数据 (社工小队)
-        this.workers = [
-            { id: 101, name: "王大力", attr: "Strong", color: "#d97706", desc: "强壮" },
-            { id: 102, name: "李秀兰", attr: "Talkative", color: "#16a34a", desc: "健谈" },
-            { id: 103, name: "张智", attr: "Smart", color: "#2563eb", desc: "聪明" }
-        ];
-
-        this.init();
+    constructor(levelManager) {
+        this.levelManager = levelManager;
+        this.container = null;
+        this.workerElements = {}; // 存储社工 DOM 引用 { id: element }
     }
 
-    init() {
-        this.renderWorkers();
-        this.initListeners();
-        // 初始化数据
-        this.updateScore(0);
-        this.updateTimer("02:00");
+    mount() {
+        console.log('Mounting Game Level UI...');
+        // 创建 UI 容器
+        this.container = document.createElement('div');
+        this.container.id = 'game-level-ui';
+        this.container.style.position = 'absolute';
+        this.container.style.width = '100%';
+        this.container.style.height = '100%';
+        this.container.style.top = '0';
+        this.container.style.left = '0';
+        this.container.style.pointerEvents = 'none'; // 让点击穿透到 canvas (除了按钮)
+        document.body.appendChild(this.container);
+
+        // 1. HUD (Top Left)
+        this.createHUD();
+
+        // 2. 社工栏 (Bottom)
+        this.createWorkerBar();
     }
 
-    renderWorkers() {
-        if (!this.workerContainer) return;
+    createHUD() {
+        const hud = document.createElement('div');
+        hud.style.position = 'absolute';
+        hud.style.top = '20px';
+        hud.style.left = '20px';
+        hud.style.color = 'white';
+        hud.style.fontFamily = 'monospace';
+        hud.style.fontSize = '20px';
+        hud.innerHTML = `
+            Score: <span id="ui-score">0</span><br>
+            Time: <span id="ui-time">60</span>
+        `;
+        this.container.appendChild(hud);
 
-        this.workerContainer.innerHTML = '';
-        this.workers.forEach(w => {
-            const card = document.createElement('div');
-            card.className = `worker-card attr-${w.attr.toLowerCase()}`;
-            card.dataset.id = w.id;
-            card.style.borderColor = w.color;
-
-            // 简单的头像占位 + 属性文字
-            card.innerHTML = `
-                <div class="worker-avatar" style="background-color: ${w.color}">
-                    <span>${w.name[0]}</span>
-                </div>
-                <div class="worker-name">${w.name}</div>
-                <div class="worker-attr" style="color: ${w.color}">${w.desc}</div>
-            `;
-
-            this.workerContainer.appendChild(card);
-        });
+        this.scoreEl = document.getElementById('ui-score');
+        this.timeEl = document.getElementById('ui-time');
     }
 
-    initListeners() {
-        // 退出按钮 -> 返回启动页 (Layer 0)
-        if (this.exitBtn) {
-            this.exitBtn.addEventListener('click', () => {
-                if (window.confirm("确定要中止挑战并退出吗？")) {
-                    uiManager.showLayer(0);
+    createWorkerBar() {
+        const bar = document.createElement('div');
+        bar.style.position = 'absolute';
+        bar.style.bottom = '20px';
+        bar.style.left = '50%';
+        bar.style.transform = 'translateX(-50%)';
+        bar.style.display = 'flex';
+        bar.style.gap = '20px';
+        bar.style.pointerEvents = 'auto'; // 允许点击
+
+        this.levelManager.workers.forEach(worker => {
+            const btn = document.createElement('div');
+            btn.style.width = '60px';
+            btn.style.height = '60px';
+            btn.style.backgroundColor = '#ddd';
+            btn.style.border = '2px solid #fff';
+            btn.style.borderRadius = '50%';
+            btn.style.display = 'flex';
+            btn.style.justifyContent = 'center';
+            btn.style.alignItems = 'center';
+            btn.style.position = 'relative';
+            btn.style.cursor = 'grab';
+            btn.innerText = worker.id; // MVP: 直接显示 ID 名字
+
+            // 冷却遮罩
+            const mask = document.createElement('div');
+            mask.style.position = 'absolute';
+            mask.style.width = '100%';
+            mask.style.height = '100%';
+            mask.style.borderRadius = '50%';
+            mask.style.backgroundColor = 'rgba(0,0,0,0.7)';
+            mask.style.display = 'none'; // 初始隐藏
+            // 简单的文本倒计时 (MVP)
+            mask.style.color = 'white';
+            mask.style.display = 'flex';
+            mask.style.justifyContent = 'center';
+            mask.style.alignItems = 'center';
+            mask.innerText = '';
+
+            btn.appendChild(mask);
+            bar.appendChild(btn);
+
+            this.workerElements[worker.id] = { btn, mask };
+
+            // 稍微加一点点击反馈
+            btn.addEventListener('mousedown', () => {
+                if (worker.cooldown > 0) {
+                    console.log('UI: Worker is cooling down!');
                 }
             });
+        });
+
+        this.container.appendChild(bar);
+    }
+
+    update() {
+        if (!this.container) return;
+
+        // 更新 HUD
+        this.scoreEl.innerText = this.levelManager.score;
+        this.timeEl.innerText = Math.ceil(this.levelManager.timeRemaining);
+
+        // 更新社工冷却状态
+        this.levelManager.workers.forEach(worker => {
+            const el = this.workerElements[worker.id];
+            if (!el) return;
+
+            if (worker.cooldown > 0) {
+                // 显示遮罩
+                el.mask.style.display = 'flex';
+                el.mask.innerText = worker.cooldown.toFixed(1);
+                el.btn.style.cursor = 'not-allowed';
+                el.btn.style.filter = 'grayscale(100%)';
+            } else {
+                // 隐藏遮罩
+                el.mask.style.display = 'none';
+                el.btn.style.cursor = 'grab';
+                el.btn.style.filter = 'none';
+            }
+        });
+
+        // 检查胜利条件 (MVP简单弹窗)
+        if (this.levelManager.levelStatus === 'finished' && !this.showedResult) {
+            this.showedResult = true;
+            alert(`Game Over! Score: ${this.levelManager.score}`);
         }
     }
-
-    // --- API ---
-
-    updateScore(score) {
-        if (this.scoreEl) this.scoreEl.textContent = score;
-    }
-
-    updateTimer(timeStr) {
-        if (this.timerEl) this.timerEl.textContent = timeStr;
-    }
 }
-
-export const gameLevelUI = new GameLevelUI();

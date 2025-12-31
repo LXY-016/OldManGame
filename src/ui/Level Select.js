@@ -1,84 +1,51 @@
-import { uiManager } from './UI Manager.js';
-
 /**
- * Level Select (Layer 2)
- * 关卡选择界面逻辑
+ * Level Select.js
+ * 关卡选择界面 (Layer 2)
  */
 export class LevelSelect {
-    constructor() {
-        this.container = document.getElementById('layer-2');
-        this.levelMap = document.querySelector('.level-map');
-        this.backBtn = document.querySelector('.btn-back');
-
-        // 模拟存档数据
-        this.levels = [
-            { id: 1, name: "小区门口", unlocked: true, stars: 0 },
-            { id: 2, name: "公园长椅", unlocked: false, stars: 0 },
-            { id: 3, name: "王大爷家", unlocked: false, stars: 0 }
-        ];
-
-        this.init();
+    constructor(onLevelSelected) {
+        this.onLevelSelected = onLevelSelected;
+        this.container = null;
     }
 
-    init() {
-        this.renderLevels();
-        this.initListeners();
-    }
+    mount() {
+        this.container = document.createElement('div');
+        this.container.style.position = 'absolute';
+        this.container.style.width = '100%';
+        this.container.style.height = '100%';
+        this.container.style.backgroundColor = '#EEEEEE';
+        this.container.style.display = 'flex';
+        this.container.style.alignItems = 'center';
+        this.container.style.overflowX = 'scroll'; // 横向滚动
 
-    renderLevels() {
-        if (!this.levelMap) return;
+        // 模拟 5 个关卡
+        for (let i = 1; i <= 5; i++) {
+            const levelBtn = document.createElement('div');
+            levelBtn.style.minWidth = '200px';
+            levelBtn.style.height = '300px';
+            levelBtn.style.margin = '0 50px';
+            levelBtn.style.backgroundColor = 'white';
+            levelBtn.style.display = 'flex';
+            levelBtn.style.justifyContent = 'center';
+            levelBtn.style.alignItems = 'center';
+            levelBtn.style.cursor = 'pointer';
+            levelBtn.innerText = `Level ${i}`;
 
-        this.levelMap.innerHTML = ''; // 清空现有内容
+            levelBtn.onclick = () => {
+                this.unmount();
+                if (this.onLevelSelected) this.onLevelSelected(i);
+            };
 
-        this.levels.forEach(level => {
-            const node = document.createElement('div');
-            node.className = `level-node ${level.unlocked ? 'unlocked' : 'locked'}`;
-            node.dataset.id = level.id;
-
-            // 节点内容
-            let content = `<div class="level-id">${level.id}</div>`;
-            content += `<div class="level-name">${level.name}</div>`;
-            if (!level.unlocked) {
-                content += `<div class="lock-icon">🔒</div>`;
-            }
-
-            node.innerHTML = content;
-            this.levelMap.appendChild(node);
-        });
-    }
-
-    initListeners() {
-        // 关卡节点点击事件
-        this.levelMap.addEventListener('click', (e) => {
-            const node = e.target.closest('.level-node');
-            if (node) {
-                const id = parseInt(node.dataset.id);
-                const levelData = this.levels.find(l => l.id === id);
-
-                if (levelData && levelData.unlocked) {
-                    this.enterLevel(id);
-                } else {
-                    this.playLockedFeedback(id);
-                }
-            }
-        });
-
-        // 返回按钮
-        if (this.backBtn) {
-            this.backBtn.addEventListener('click', () => {
-                uiManager.showLayer(0); // 返回主界面
-            });
+            this.container.appendChild(levelBtn);
         }
+
+        document.body.appendChild(this.container);
     }
 
-    enterLevel(levelId) {
-        console.log(`Entering Level ${levelId}...`);
-        uiManager.showLayer(1); // 跳转游戏界面
-    }
-
-    playLockedFeedback(levelId) {
-        console.log(`Level ${levelId} is locked!`);
-        // 这里后续可以加震动动画
-        alert("该关卡尚未解锁！请先通关前置关卡。");
+    unmount() {
+        if (this.container) {
+            document.body.removeChild(this.container);
+            this.container = null;
+        }
     }
 }

@@ -1,38 +1,46 @@
-import { uiManager } from './UI Manager.js';
-
 /**
- * Start Screen (Layer 0)
- * 启动界面逻辑控制器
+ * Start Screen.js
+ * 启动界面 (Layer 0)
  */
 export class StartScreen {
-    constructor() {
-        this.container = document.getElementById('layer-0');
-        this.startBtn = document.getElementById('btn-start');
-        this.exitBtn = document.getElementById('btn-exit');
-
-        this.initListeners();
+    constructor(onStart) {
+        this.onStart = onStart;
+        this.container = null;
     }
 
-    initListeners() {
-        // 开始游戏按钮
-        if (this.startBtn) {
-            this.startBtn.addEventListener('click', () => {
-                console.log('Start Game: 跳转至 Layer 2 (关卡选择)');
-                // TODO: 真正的跳转逻辑将在 Step 2 实现
-                uiManager.showLayer(2);
-            });
-        }
+    mount() {
+        this.container = document.createElement('div');
+        this.container.style.position = 'absolute';
+        this.container.style.width = '100%';
+        this.container.style.height = '100%';
+        this.container.style.backgroundColor = '#87CEEB'; // Sky Blue
+        this.container.style.display = 'flex';
+        this.container.style.flexDirection = 'column';
+        this.container.style.justifyContent = 'center';
+        this.container.style.alignItems = 'center';
 
-        // 退出游戏按钮
-        if (this.exitBtn) {
-            this.exitBtn.addEventListener('click', () => {
-                if (window.confirm("确定要退出游戏吗？")) {
-                    console.log('Exit Confirmed');
-                    // Web 环境下 window.close() 可能被浏览器拦截，仅作演示
-                    window.close();
-                    alert("已尝试退出 (浏览器可能拦截关闭操作)");
-                }
-            });
+        const title = document.createElement('h1');
+        title.innerText = 'Old Man Game';
+        title.style.color = 'white';
+
+        const btn = document.createElement('button');
+        btn.innerText = 'Start Game';
+        btn.style.padding = '20px 40px';
+        btn.style.fontSize = '24px';
+        btn.onclick = () => {
+            this.unmount();
+            if (this.onStart) this.onStart();
+        };
+
+        this.container.appendChild(title);
+        this.container.appendChild(btn);
+        document.body.appendChild(this.container);
+    }
+
+    unmount() {
+        if (this.container) {
+            document.body.removeChild(this.container);
+            this.container = null;
         }
     }
 }
