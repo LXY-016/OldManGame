@@ -54,7 +54,7 @@ f:/OldManGame/
 - **类名 (Classes)**:
     - 使用 `PascalCase` (大驼峰), 例如: `SocialWorker`, `OldMan`
 - **变量与函数**:
-    - 使用 `camelCase` (小驼峰), 例如: `initScene()`, `currentScore`
+    - 使用 `camelCase` (小驼峰), 例如: `initScene()`, `currentServicedCount`
 - **常量**:
     - 使用 `UPPER_SNAKE_CASE` (大写下划线), 例如: `MAX_GAME_TIME`, `COLOR_GREEN`
 

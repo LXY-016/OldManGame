@@ -52,16 +52,16 @@ scene.add(dirLight);
 window.addEventListener('resize', () => {
     // 重新计算宽高比
     const aspect = window.innerWidth / window.innerHeight;
-    
+
     // 更新相机视锥体参数
     camera.left = -d * aspect;
     camera.right = d * aspect;
     camera.top = d;
     camera.bottom = -d;
-    
+
     // 更新相机投影矩阵
     camera.updateProjectionMatrix();
-    
+
     // 更新渲染器尺寸
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
